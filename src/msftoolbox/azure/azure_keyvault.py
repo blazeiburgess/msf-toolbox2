@@ -1,6 +1,11 @@
-from typing import Optional
+from typing import TYPE_CHECKING
+
 from azure.keyvault.secrets import SecretClient
+from azure.keyvault.certificates import CertificateClient, CertificatePolicy, KeyVaultCertificate
 from azure.identity import AzureCliCredential, DefaultAzureCredential, ManagedIdentityCredential
+
+if TYPE_CHECKING:
+    from azure.keyvault.certificates import DeletedCertificate
 
 class AzureKeyvaultClient:
     """
@@ -30,6 +35,10 @@ class AzureKeyvaultClient:
             vault_url=self.keyvault_url,
             credential=self.credential
             )
+        
+        self.certificate_client = CertificateClient(
+            vault_url=self.keyvault_url, credential=self.credential
+        )
 
     def _get_credential(
         self
@@ -125,7 +134,7 @@ class AzureKeyvaultClient:
 
     def list_deleted_keyvault_secrets(
         self,
-        maxresults: Optional[int]=None
+        maxresults: int | None=None
         ):
         """
         List deleted secrets in the Key Vault.
@@ -160,3 +169,91 @@ class AzureKeyvaultClient:
             ).result()
 
         return recovered_secret
+
+    def get_keyvault_certificate(self, certificate_name: str) -> KeyVaultCertificate:
+        """Get a certificate (latest version) from the Key Vault.
+
+        Args:
+            certificate_name: The name of the certificate in the Key Vault.
+
+        Returns:
+            The KeyVaultCertificate object (includes policy and properties).
+        """
+        return self.certificate_client.get_certificate(certificate_name)
+
+    def list_certificate_names(self) -> list[str]:
+        """List all certificate names in the Key Vault.
+
+        Returns:
+            A list of certificate names.
+        """
+        certs = self.certificate_client.list_properties_of_certificates()
+        return [c.name for c in certs]
+
+    def import_keyvault_certificate(
+        self,
+        certificate_name: str,
+        certificate_bytes: bytes,
+        password: str | None = None,
+        enabled: bool | None = None,
+        tags: dict | None = None,
+    ):
+        """Import a certificate (e.g., PFX/PKCS12) into the Key Vault.
+
+        Args:
+            certificate_name: The name of the certificate to create/update.
+            certificate_bytes: The certificate bytes (DER-encoded .cer or PFX).
+            password: Password for the PFX if applicable.
+            enabled: Whether the certificate should be enabled.
+            tags: Optional tags to associate with the certificate.
+
+        Returns:
+            The imported KeyVaultCertificate.
+        """
+        return self.certificate_client.import_certificate(
+            name=certificate_name,
+            certificate_bytes=certificate_bytes,
+            password=password,
+            enabled=enabled,
+            tags=tags,
+        )
+
+    def delete_keyvault_certificate(self, certificate_name: str) -> "DeletedCertificate":
+        """Delete a certificate from the Key Vault.
+
+        Args:
+            certificate_name: The name of the certificate to delete.
+
+        Returns:
+            The DeletedCertificate result.
+        """
+        return self.certificate_client.begin_delete_certificate(certificate_name).result()
+
+    def list_deleted_keyvault_certificates(
+        self, maxresults: int | None = None
+    ) -> list[str]:
+        """List deleted certificates in the Key Vault (only if soft-delete is enabled).
+
+        Args:
+            maxresults: The maximum number of results to return.
+
+        Returns:
+            A list of deleted certificate names.
+        """
+        deleted = self.certificate_client.list_deleted_certificates(
+            max_page_size=maxresults
+        )
+        return [c.name for c in deleted]
+
+    def recover_keyvault_certificate(self, certificate_name: str) -> KeyVaultCertificate:
+        """Recover a deleted certificate in the Key Vault.
+
+        Args:
+            certificate_name: The name of the deleted certificate to recover.
+
+        Returns:
+            The recovered KeyVaultCertificate.
+        """
+        return self.certificate_client.begin_recover_deleted_certificate(
+            certificate_name
+        ).result()
