@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from base64 import b64decode
 from pathlib import Path
 from typing import TYPE_CHECKING
-
-from Crypto.IO import PEM
 
 from azure.core.credentials import TokenCredential
 from azure.identity import (
@@ -202,16 +199,15 @@ class AzureKeyvaultClient:
     ) -> None:
         """Save a certificate string to a PEM file.
 
-        If the input already appears to be PEM (contains BEGIN/END markers),
-        it is written as-is. Otherwise, it is treated as a base64-encoded DER
-        blob and wrapped into PEM format.
+        If the input does not appear to be in PEM format (containing ``-----BEGIN``),
+        a ValueError is raised.
 
         Args:
             cert_string: Certificate content from Azure Key Vault.
             out_path: Destination path for the output PEM file.
 
         Raises:
-            ValueError: If ``cert_string`` is empty.
+            ValueError: If ``cert_string`` is not in PEM format.
         """
         if not cert_string:
             raise ValueError(
@@ -224,10 +220,9 @@ class AzureKeyvaultClient:
         if "-----BEGIN" in cert_string:
             pem_bytes = cert_string.encode("ascii")
         else:
-            # Case 2: Base64-encoded DER (most common from Key Vault secrets).
-            der_bytes = b64decode(cert_string)
-            pem_str = PEM.encode(der_bytes, "CERTIFICATE")
-            pem_bytes = pem_str.encode("ascii")
+            raise ValueError(
+                "Certificate string does not appear to be in PEM format.",
+            )
 
         output_path = Path(out_path)
         output_path.write_bytes(pem_bytes)
@@ -238,6 +233,11 @@ class AzureKeyvaultClient:
         out_path: str | Path,
     ) -> None:
         """Save a keyvault certificate to a PEM file.
+
+        Notes:
+            This method retrieves the certificate value from Key Vault as a secret,
+            then saves it to a PEM file. When you create a certificate in Key Vault,
+            the certificate is also stored as a secret with the same name.
 
         Args:
             certificate_name: Certificate name in Azure Key Vault.
@@ -264,11 +264,11 @@ class AzureKeyvaultClient:
         certificate_bytes: bytes,
         **kwargs,
     ) -> KeyVaultCertificate:
-        """Import a certificate (for example, PFX/PKCS12) into the Key Vault.
+        """Import a certificate (for example, PFX/PKCS12, PEM) into the Key Vault.
 
         Args:
             certificate_name: The name of the certificate to create or update.
-            certificate_bytes: The certificate bytes (DER-encoded ``.cer`` or PFX).
+            certificate_bytes: The certificate bytes (DER-encoded ``.cer``, PFX, or PEM-encoded ``.pem``).
             **kwargs: Additional keyword arguments passed to
                 :meth:`CertificateClient.import_certificate`, such as:
 
